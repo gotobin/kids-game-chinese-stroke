@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小兔子寫字樂園</title>
+    <!-- Include Hanzi Writer library -->
+    <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.5/dist/hanzi-writer.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f9f4;
+            color: #333;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .game-container {
+            background: #ffffff;
+            border-radius: 24px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+            padding: 30px;
+            max-width: 450px;
+            width: 100%;
+            border: 4px solid #b4e197;
+        }
+
+        h1 {
+            color: #5c8374;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .file-upload-box {
+            margin-bottom: 15px;
+            background: #f0f7f4;
+            padding: 10px;
+            border-radius: 12px;
+            font-size: 14px;
+        }
+
+        #character-target-div {
+            width: 210px;
+            height: 210px;
+            margin: 0 auto 15px auto;
+            background: #fffdf9;
+            border: 3px dashed #d8e2dc;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 15px;
+        }
+
+        button {
+            background-color: #ffb7b2;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 4px #ff9aa2;
+        }
+
+        button:active {
+            transform: translateY(2px);
+        }
+
+        button.secondary {
+            background-color: #b5ead7;
+            color: #333;
+            box-shadow: 0 4px #c7ceea;
+        }
+
+        #feedback {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 10px;
+            color: #ff9aa2;
+            height: 25px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        <h1>🐰 小兔子寫字樂園</h1>
+        
+        <div class="file-upload-box">
+            📂 選擇字庫檔案 (word_list.txt，以逗號分隔)：<br>
+            <input type="file" id="file-input" accept=".txt" style="margin-top: 5px;">
+        </div>
+
+        <div class="instructions">完整詞語：<span id="word-name" style="color: #5c8374; font-size: 20px; font-weight: bold;">公園</span> | 正在寫：<span id="char-name" style="color: #ffb7b2; font-size: 22px; font-weight: bold;">公</span></div>
+        
+        <div id="character-target-div"></div>
+
+        <div id="feedback">準備好了嗎？加油！</div>
+
+        <div class="btn-group">
+            <button class="secondary" onclick="speakCurrentWord()">🔊 再聽一次</button>
+            <button class="secondary" onclick="showExampleAndRewrite()">💡 看示範並重寫</button>
+        </div>
+        <div style="font-size: 22px; margin-top: 10px;" id="rewards">🥕🥕🥕</div>
+    </div>
+
+    <script>
+        let words = ['公園', '看見', '教室', '校服', '留心']; // Default fallback list
+        let wordIndex = 0;   
+        let charIndex = 0;   
+        let writer = null;
+        let carrotsEarned = 3;
+
+        document.getElementById('file-input').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const text = e.target.result;
+                const loadedWords = text.split(',').map(w => w.trim()).filter(w => w.length > 0);
+                if (loadedWords.length > 0) {
+                    words = loadedWords;
+                    wordIndex = 0;
+                    charIndex = 0;
+                    loadCurrentPosition();
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function speakWord(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'zh-HK';
+                utterance.rate = 0.8;
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        function speakCurrentWord() {
+            if (words.length > 0) {
+                speakWord(words[wordIndex]);
+            }
+        }
+
+        function loadCurrentPosition() {
+            const currentWord = words[wordIndex];
+            const currentChar = currentWord.charAt(charIndex);
+
+            document.getElementById('word-name').innerText = currentWord;
+            document.getElementById('char-name').innerText = currentChar;
+            document.getElementById('feedback').innerText = `正在練習第 ${charIndex + 1} 個字，照著筆順畫吧！`;
+
+            if (charIndex === 0) {
+                speakWord(currentWord);
+            } else {
+                speakWord(currentChar);
+            }
+
+            setupQuizWriter(currentChar);
+        }
+
+        function setupQuizWriter(currentChar) {
+            const container = document.getElementById('character-target-div');
+            container.innerHTML = '';
+
+            try {
+                if (typeof HanziWriter === 'undefined') {
+                    container.innerHTML = '<span style="color:red; font-size:13px;">無法載入筆順元件。<br>請檢查網路連線是否正常。</span>';
+                    return;
+                }
+
+                writer = HanziWriter.create('character-target-div', currentChar, {
+                    width: 190,
+                    height: 190,
+                    padding: 10,
+                    showOutline: true,
+                    strokeColor: '#5c8374',
+                    drawingColor: '#ff9aa2',
+                    leniency: 1.5,
+                    showCharacter: false
+                });
+
+                writer.quiz({
+                    onMistake: function(strokeData) {
+                        document.getElementById('feedback').innerText = '哎呀，筆順錯囉！黃色發光的就是正確下一筆 💪';
+                        
+                        writer.highlightStroke(strokeData.strokeNum, {
+                            duration: 600,
+                            color: '#ffeb3b'
+                        });
+                    },
+                    onCorrectStroke: function(strokeData) {
+                        document.getElementById('feedback').innerText = '好棒！繼續保持 ⭐';
+                    },
+                    onComplete: function(summaryData) {
+                        carrotsEarned++;
+                        document.getElementById('rewards').innerText = '🥕'.repeat(Math.min(carrotsEarned, 8));
+
+                        const currentWord = words[wordIndex];
+                        if (charIndex < currentWord.length - 1) {
+                            charIndex++;
+                            document.getElementById('feedback').innerText = '🎉 這個字寫完囉！自動進入下一個字...';
+                            setTimeout(loadCurrentPosition, 1000);
+                        } else {
+                            document.getElementById('feedback').innerText = '🎉 太棒了！整個詞語寫完啦！';
+                            setTimeout(nextWordStep, 1300);
+                        }
+                    }
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // Show example animation first, then restart quiz for the kid to rewrite
+        function showExampleAndRewrite() {
+            if (!writer) return;
+            const currentWord = words[wordIndex];
+            const currentChar = currentWord.charAt(charIndex);
+
+            document.getElementById('feedback').innerText = '👀 請看示範筆順...';
+
+            // Animate demonstration
+            writer.animateCharacter({
+                onComplete: function() {
+                    document.getElementById('feedback').innerText = '✨ 換你寫囉！請照著筆順練習！';
+                    // Reset/re-initialize quiz so the child can rewrite it fresh
+                    setupQuizWriter(currentChar);
+                }
+            });
+        }
+
+        function nextWordStep() {
+            if (words.length === 0) return;
+            charIndex = 0;
+            wordIndex = (wordIndex + 1) % words.length;
+            loadCurrentPosition();
+        }
+
+        window.onload = function() {
+            loadCurrentPosition();
+        };
+    </script>
+</body>
+</html>
